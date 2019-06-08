@@ -44,7 +44,11 @@ import {
   loadSDMXFromAPI,
   loadFeatureServiceFields,
   getGeoJsonByUniqueFieldValues,
-  uploadGeoJSONToAzureBlob
+  joinSDMXtoGeoJson,
+  uploadGeoJSONToAzureBlob,
+  createGeoJsonInArcGISOnline,
+  checkItemStatus,
+  publishItemAsLayer
 } from '../services/sdmxRequest';
 
 const RadioControlContainer = styled.div`
@@ -82,6 +86,7 @@ class SDMXItemPublisherForm extends Component {
         geojsongeofile: null,
         prefixSDMX: '',
         prefixGeoJSON: '',
+        newItemName: '',
         loadGeoFromFSUrl:
           'https://services.arcgis.com/P3ePLMYs2RVChkJx/arcgis/rest/services/World_Countries_(Generalized)/FeatureServer/0',
         loadSDMXFromAPIUrl:
@@ -206,9 +211,15 @@ class SDMXItemPublisherForm extends Component {
   publishLayer = async (values, actions) => {
     actions.setSubmitting(true);
 
+    const user = this.props.auth.user.username;
+    const portalUrl = this.props.auth.user.portal.restUrl;
+    const token = this.props.auth.user.portal.credential.token;
+
     this.setState({
+      isSuccess: false,
+      newItem: null,
       isPublishingFeatureService: true,
-      publishLog: [...this.state.publishLog, { message: 'Querying for GeoJSON ...' }]
+      publishLog: [{ message: 'Querying for GeoJSON ...' }]
     });
 
     let gjToUpload = this.state.fc;
@@ -227,18 +238,14 @@ class SDMXItemPublisherForm extends Component {
       try {
         uniqueGeoJson = await getGeoJsonByUniqueFieldValues(values.loadGeoFromFSUrl, where, this.state.userAuth.token);
 
-        this.setState({ geoJsonGeographies: uniqueGeoJson });
-
-        gjToUpload = this.joinSDMXtoGeoJson(uniqueGeoJson, this.state.fc, fGeoJson, pGeoJson, fSDMX, pSDMX);
-      } catch (err) {
-        console.log(err);
         this.setState({
-          isPublishingFeatureService: false,
-          publishLog: [
-            ...this.state.publishLog,
-            { isError: true, message: `Unable to query GeoJSON or join to SDMX:  ${JSON.stringify(err)}` }
-          ]
+          geoJsonGeographies: uniqueGeoJson,
+          publishLog: [...this.state.publishLog, { message: 'Joining SDMX to GeoJson ...' }]
         });
+
+        gjToUpload = joinSDMXtoGeoJson(uniqueGeoJson, this.state.fc, fGeoJson, pGeoJson, fSDMX, pSDMX);
+      } catch (err) {
+        this.logError(`Unable to query GeoJSON or join to SDMX:  ${JSON.stringify(err)}`, actions);
       }
     }
 
@@ -246,270 +253,82 @@ class SDMXItemPublisherForm extends Component {
       publishLog: [...this.state.publishLog, { message: 'Uploading GeoJson to temporary cloud storage ...' }]
     });
 
-    const uploadResponse = await uploadGeoJSONToAzureBlob(gjToUpload);
-    // console.log(uploadResponse);
+    let uploadResponse;
+    try {
+      uploadResponse = await uploadGeoJSONToAzureBlob(gjToUpload);
+      // console.log(uploadResponse);
 
-    // START HERE! --
-    this.setState({
-      publishLog: [...this.state.publishLog, { message: 'Adding GeoJson Item to My Content in ArcGIS Online ... ' }]
-    });
-    // this.createGeoJsonItem(uploadResponse.blobUrl, actions);
-  };
-
-  joinSDMXtoGeoJson = (geojson, fc, gjField, pGeoJson, sdmxField, pSDMX) => {
-    this.setState({ publishLog: [...this.state.publishLog, { message: 'Joining SDMX to GeoJson ...' }] });
-
-    let tempCache = {};
-    let foundGeom = null;
-
-    fc.features.forEach(feature => {
-      if (tempCache[feature.properties[sdmxField]]) {
-        feature.geometry = tempCache[feature.properties[sdmxField]];
-      } else {
-        foundGeom = null;
-        foundGeom = geojson.features.filter(gjFeature => {
-          const gjValue = gjFeature.properties[gjField];
-          const sdmxValue = feature.properties[sdmxField];
-          if (pGeoJson && pSDMX) {
-            return `${pGeoJson}${gjValue}` === `${pSDMX}${sdmxValue}`;
-          } else if (pGeoJson) {
-            return `${pGeoJson}${gjValue}` === sdmxValue;
-          } else if (pSDMX) {
-            return gjValue === `${pSDMX}${sdmxValue}`;
-          } else {
-            return gjValue === sdmxValue;
-          }
-        })[0];
-        if (foundGeom && foundGeom.geometry) {
-          tempCache[feature.properties[sdmxField]] = foundGeom.geometry;
-          feature.geometry = foundGeom.geometry;
-        }
-      }
-    });
-
-    tempCache = {};
-
-    return fc;
-  };
-
-  createGeoJsonItem = (url, actions) => {
-    const item = {
-      title: this.state.sdmxName,
-      type: 'GeoJson'
-    };
-
-    const params = {
-      dataUrl: url,
-      overwrite: true,
-      async: true
-    };
-
-    createItem({
-      item,
-      params,
-      authentication: this.state.userAuth
-    }).then(
-      response => {
-        console.log(response);
-        if (response.success) {
-          const itemId = response.id;
-          const timer = setInterval(() => this.checkAddItemStatus(itemId, actions), 1000);
-          this.setState({ timer: timer });
-        }
-      },
-      error => {
-        this.setState({
-          isSuccess: false,
-
-          isPublishingFeatureService: false,
-          publishLog: [...this.state.publishLog, { isError: true, message: error.message }]
-        });
-        actions.setSubmitting(false);
-      }
-    );
-  };
-
-  checkAddItemStatus = (itemId, actions) => {
-    const user = this.props.auth.user.username;
-    const portalUrl = this.props.auth.user.portal.restUrl;
-    const token = this.props.auth.user.portal.credential.token;
-    const url = `${portalUrl}/content/users/${user}/items/${itemId}/status`;
-
-    agoRequest(url, {
-      httpMethod: 'GET',
-      params: {
-        f: 'json',
-        token: token
-      }
-    })
-      .then(response => {
-        console.log('checkAddItemStatus', response);
-        if (response.status === 'completed') {
-          clearInterval(this.state.timer);
-          this.setState({ timer: null });
-          this.publishItemAsLayer(response.itemId, actions);
-        }
-      })
-      .catch(error => {
-        console.log(error);
-        this.setState({
-          isSuccess: false,
-
-          isPublishingFeatureService: false,
-          publishLog: [...this.state.publishLog, { isError: true, message: error.message }]
-        });
-
-        actions.setSubmitting(false);
+      this.setState({
+        publishLog: [...this.state.publishLog, { message: 'Adding GeoJson Item to My Content in ArcGIS Online ... ' }]
       });
-  };
 
-  checkRelatedItems = itemId => {
-    const user = this.props.auth.user.username;
-    const portalUrl = this.props.auth.user.portal.restUrl;
-    const token = this.props.auth.user.portal.credential.token;
-    // https://www.arcgis.com/sharing/rest/content/items/<>/relatedItems?f=json&relationshipType=Service2Data&direction=reverse
-    const url = `${portalUrl}/content/items/${itemId}/relatedItems`;
+      const createdItemId = await createGeoJsonInArcGISOnline(
+        uploadResponse.blobUrl,
+        values.newItemName,
+        this.state.userAuth
+      );
 
-    return agoRequest(url, {
-      httpMethod: 'GET',
-      params: {
-        relationshipType: 'Service2Data',
-        f: 'json',
-        token: token,
-        direction: 'reverse'
-      }
-    });
-  };
+      const checkUrl = `${this.props.auth.user.portal.restUrl}/content/users/${this.props.auth.user.username}/items/${
+        createdItemId.id
+      }/status`;
 
-  publishItemAsLayer = (itemId, actions) => {
-    this.setState({
-      publishLog: [...this.state.publishLog, { message: 'Publishing GeoJson as a Hosted Feature Service ...' }]
-    });
-
-    const user = this.props.auth.user.username;
-    const portalUrl = this.props.auth.user.portal.restUrl;
-    const token = this.props.auth.user.portal.credential.token;
-    const url = `${portalUrl}/content/users/${user}/publish`;
-
-    agoRequest(url, {
-      httpMethod: 'POST',
-      params: {
-        itemId: itemId,
-        f: 'json',
-        token: token,
-        filetype: 'geojson',
-        overwrite: false,
-        publishParameters: {
-          hasStaticData: true,
-          name: this.state.sdmxName,
-          maxRecordCount: 10000,
-          layerInfo: {
-            capabilities: 'Query'
-          }
+      let hndlr = setInterval(async () => {
+        let sts = await checkItemStatus(checkUrl, this.state.userAuth.token);
+        if (!sts || sts.status === 'failed') {
+          clearInterval(hndlr);
+          this.logError(`unable to get status response or failure adding item :: ${createdItemId}`);
         }
-      }
-    })
-      .then(response => {
-        // debugger;
-        const itemId = response.services[0].serviceItemId;
-        const timer = setInterval(() => this.checkPublishItemStatus(itemId, actions), 1000);
-        this.setState({ timer: timer });
-      })
-      .catch(error => {
-        console.log(error);
+        if (sts.status === 'completed') {
+          clearInterval(hndlr);
 
-        // PUB_0047 - "User cant overwrite this service, using this data, as this data is already referring to another service."
-        if (error.code === 'PUB_0047') {
-          this.checkRelatedItems(itemId)
-            .then(response => {
-              if (response && response.relatedItems && response.relatedItems.length > 0) {
-                const relatedItem = response.relatedItems[0];
-                // const checkUrl = `${portalUrl}/content/users/${user}/items/${itemId}/status`;
-                const portal = this.props.auth.user.portal;
-                const portalUrlKey = portal.url.replace('www', `${portal.urlKey}.maps`);
-                const checkUrl = `${portalUrlKey}/home/item.html?id=${relatedItem.id}`;
+          this.setState({
+            publishLog: [...this.state.publishLog, { message: 'Publishing GeoJson as a Hosted Feature Service ...' }]
+          });
+
+          const url = `${portalUrl}/content/users/${user}/publish`;
+          let publishResponse;
+          try {
+            publishResponse = await publishItemAsLayer(createdItemId.id, url, token, values.newItemName);
+            if (!publishResponse.services[0].serviceItemId) {
+              // eslint-disable-next-line no-throw-literal
+              throw 'Error publishing the GeoJSON file as a service. The feature service may already exist';
+            }
+            const publishedItemId = publishResponse.services[0].serviceItemId;
+
+            const publishCheckUrl = `${this.props.auth.user.portal.restUrl}/content/users/${
+              this.props.auth.user.username
+            }/items/${publishedItemId}/status`;
+
+            hndlr = setInterval(async () => {
+              sts = await checkItemStatus(publishCheckUrl, this.state.userAuth.token);
+
+              if (!sts || sts.status === 'failed') {
+                clearInterval(hndlr);
+                this.logError(`unable to get status response or failure publishing item :: ${createdItemId}`);
+              }
+              if (sts.status === 'completed') {
+                clearInterval(hndlr);
+
+                const itemInfo = await getItem(publishedItemId, { authentication: this.state.userAuth });
+
+                actions.setSubmitting(false);
+
                 this.setState({
-                  publishLog: [
-                    ...this.state.publishLog,
-                    { isError: true, message: `View related item here, ${checkUrl}` }
-                  ]
+                  newItem: itemInfo,
+                  publishLog: [],
+                  isSuccess: true,
+                  isPublishingFeatureService: false
                 });
               }
-            })
-            .catch(error => {
-              debugger;
-              console.log(error);
-            });
+            }, 1000);
+          } catch (err) {
+            this.logError(err, actions);
+          }
         }
-
-        this.setState({
-          isSuccess: false,
-
-          isPublishingFeatureService: false,
-          publishLog: [...this.state.publishLog, { isError: true, message: error.message }]
-        });
-        actions.setSubmitting(false);
-      });
-  };
-
-  checkPublishItemStatus = (itemId, actions) => {
-    const user = this.props.auth.user.username;
-    const portalUrl = this.props.auth.user.portal.restUrl;
-    const token = this.props.auth.user.portal.credential.token;
-    const url = `${portalUrl}/content/users/${user}/items/${itemId}/status`;
-
-    agoRequest(url, {
-      httpMethod: 'GET',
-      params: {
-        f: 'json',
-        token: token
-      }
-    })
-      .then(response => {
-        console.log('checkPublishItemStatus', response);
-        if (response.status === 'completed') {
-          clearInterval(this.state.timer);
-          this.setState({ timer: null });
-
-          const newId = response.itemId;
-
-          getItem(newId, { authentication: this.state.userAuth })
-            .then(response => {
-              // all done!
-              this.setState({
-                isPublishingFeatureService: false,
-
-                newItem: response,
-                isSuccess: true,
-                publishLog: []
-              });
-              actions.setSubmitting(false);
-            })
-            .catch(error => {
-              console.log(error);
-              actions.setSubmitting(false);
-            });
-        } else if (response.status === '') {
-          clearInterval(this.state.timer);
-          this.setState({ timer: null });
-          this.setState({
-            isSuccess: false,
-
-            isPublishingFeatureService: false,
-            publishLog: [...this.state.publishLog, { isError: true, message: response.statusMessage }]
-          });
-        }
-      })
-      .catch(error => {
-        console.log(error);
-        this.setState({
-          isSuccess: false,
-
-          isPublishingFeatureService: false,
-          publishLog: [...this.state.publishLog, { isError: true, message: error.message }]
-        });
-        actions.setSubmitting(false);
-      });
+      }, 1000);
+    } catch (err) {
+      this.logError(`${JSON.stringify(err)}`, actions);
+    }
   };
 
   getSDMXStatusReport = () => {
@@ -604,6 +423,22 @@ class SDMXItemPublisherForm extends Component {
     const url = `${portalUrlKey}/home/item.html?id=${item.id}`;
 
     window.open(url, '_blank');
+  };
+
+  /**
+   * Log any errors
+   */
+  logError = (message, actions) => {
+    console.log(message);
+    this.setState({
+      isSuccess: false,
+      isPublishingFeatureService: false,
+      publishLog: [...this.state.publishLog, { isError: true, message: message }]
+    });
+
+    if (actions) {
+      actions.setSubmitting(false);
+    }
   };
 
   render() {
@@ -812,7 +647,7 @@ class SDMXItemPublisherForm extends Component {
                     <div className="grid-container join-field">
                       <div className="column-6 text-left">
                         <div className="leader-1 trailer-1">
-                          <Label>Add Prefix to Geography Field?</Label>
+                          <Label>Add Prefix to Values in Geography Field?</Label>
                           <Field component={TextField} type="text" name="prefixGeoJSON" />
                         </div>
                         <FormControlLabel htmlFor="geographyField">Select Geography field:</FormControlLabel>
@@ -836,7 +671,7 @@ class SDMXItemPublisherForm extends Component {
                       </div>
                       <div className="column-6 text-left">
                         <div className="leader-1 trailer-1">
-                          <Label>Add Prefix to SDMX Field?</Label>
+                          <Label>Add Prefix to Values in SDMX Field?</Label>
                           <Field component={TextField} type="text" name="prefixSDMX" />
                         </div>
                         <FormControlLabel htmlFor="sdmxField">Select SDMX field:</FormControlLabel>
@@ -859,6 +694,17 @@ class SDMXItemPublisherForm extends Component {
               </Panel>
               <Panel className="column-24 text-left leader-1 trailer-2">
                 <PanelTitle className="text-left">Step 3. Publish as Hosted Feature Service</PanelTitle>
+
+                <div className="grid-container trailer-1">
+                  <div className="column-8">
+                    <Field
+                      disabled={this.state.isLoadingFCFromAPI}
+                      component={TextField}
+                      type="text"
+                      name="newItemName"
+                    />
+                  </div>
+                </div>
                 <div className="grid-container">
                   <div className="column-2">
                     <Button extraLarge disabled={isSubmitting} type="submit">

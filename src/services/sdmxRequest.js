@@ -1,6 +1,7 @@
 import moment from 'moment';
 import storage from 'azure-storage';
 import { request as agoRequest } from '@esri/arcgis-rest-request';
+import { createItem } from '@esri/arcgis-rest-items';
 import rp from 'request-promise';
 
 const SDMX_ACCEPT_HEADER = 'application/vnd.sdmx.data+json;version=1.0.0-wd';
@@ -264,7 +265,7 @@ export async function getGeoJsonByUniqueFieldValues(url, where, token) {
  */
 export async function uploadGeoJSONToAzureBlob(geojson) {
   const containerName = 'test';
-  const blobName = 'temp_from_sdmx_app.geojson';
+  const blobName = `temp_from_sdmx_app_${new Date().getTime()}.geojson`;
   const text = JSON.stringify(geojson);
 
   const blobService = storage.createBlobServiceWithSas(AZURE_BLOB_HOST, AZURE_SAS_TOKEN);
@@ -278,5 +279,108 @@ export async function uploadGeoJSONToAzureBlob(geojson) {
         resolve({ blobUrl: blobUrl });
       }
     });
+  });
+}
+
+export function joinSDMXtoGeoJson(geojson, fc, gjField, pGeoJson, sdmxField, pSDMX) {
+  let tempCache = {};
+  let foundGeom = null;
+
+  fc.features.forEach(feature => {
+    if (tempCache[feature.properties[sdmxField]]) {
+      feature.geometry = tempCache[feature.properties[sdmxField]];
+    } else {
+      foundGeom = null;
+      foundGeom = geojson.features.filter(gjFeature => {
+        const gjValue = gjFeature.properties[gjField];
+        const sdmxValue = feature.properties[sdmxField];
+        if (pGeoJson && pSDMX) {
+          return `${pGeoJson}${gjValue}` === `${pSDMX}${sdmxValue}`;
+        } else if (pGeoJson) {
+          return `${pGeoJson}${gjValue}` === sdmxValue;
+        } else if (pSDMX) {
+          return gjValue === `${pSDMX}${sdmxValue}`;
+        } else {
+          return gjValue === sdmxValue;
+        }
+      })[0];
+      if (foundGeom && foundGeom.geometry) {
+        tempCache[feature.properties[sdmxField]] = foundGeom.geometry;
+        feature.geometry = foundGeom.geometry;
+      }
+    }
+  });
+
+  tempCache = {};
+
+  return fc;
+}
+
+/**
+ * Create Item in ArcGIS Online from a hosted GeoJSON file via a URL
+ * @param urlToGeoJson URL to the geojson file
+ * @param name name of the GeoJSON item
+ * @param auth authentication object
+ * @returns ItemId of newly created GeoJSON item
+ */
+export async function createGeoJsonInArcGISOnline(urlToGeoJson, name, auth) {
+  const item = {
+    title: name,
+    type: 'GeoJson'
+  };
+
+  const params = {
+    dataUrl: urlToGeoJson,
+    // overwrite: true,
+    async: true
+  };
+
+  return createItem({
+    item,
+    params,
+    authentication: auth
+  });
+}
+
+/**
+ * Check Item Status in ArcGIS Online
+ * @param itemId ArcGIS Online ItemId of the item to publish
+ * @param token ArcGIS Online token for the status requeset
+ * @returns Promise for Item Status check
+ */
+export async function publishItemAsLayer(itemId, url, token, sdmxName) {
+  return agoRequest(url, {
+    httpMethod: 'POST',
+    params: {
+      itemId: itemId,
+      f: 'json',
+      token: token,
+      filetype: 'geojson',
+      overwrite: false,
+      publishParameters: {
+        hasStaticData: true,
+        name: sdmxName,
+        maxRecordCount: 10000,
+        layerInfo: {
+          capabilities: 'Query'
+        }
+      }
+    }
+  });
+}
+
+/**
+ * Check Item Status in ArcGIS Online
+ * @param urlToGeoJson URL to the geojson file
+ * @param token ArcGIS Online token for the status requeset
+ * @returns Promise for Item Status check
+ */
+export async function checkItemStatus(inUrl, token) {
+  return agoRequest(inUrl, {
+    httpMethod: 'GET',
+    params: {
+      f: 'json',
+      token: token
+    }
   });
 }
