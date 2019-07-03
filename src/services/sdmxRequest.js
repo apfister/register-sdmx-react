@@ -1,13 +1,16 @@
 import moment from 'moment';
 import storage from 'azure-storage';
+import request from 'request';
 import { request as agoRequest } from '@esri/arcgis-rest-request';
 import { createItem } from '@esri/arcgis-rest-items';
+import { searchItems } from '@esri/arcgis-rest-portal';
 import rp from 'request-promise';
+import xmlParser from 'fast-xml-parser';
 
 const SDMX_ACCEPT_HEADER = 'application/vnd.sdmx.data+json;version=1.0.0-wd';
-const AZURE_BLOB_HOST = '<YOUR BLOB HOST>';
-const AZURE_SAS_TOKEN = '<YOUR SAS TOKEN>';
-
+const AZURE_BLOB_HOST = 'https://sdmxstorage.blob.core.windows.net';
+const AZURE_SAS_TOKEN =
+  '?sv=2018-03-28&ss=b&srt=sco&sp=rwdlac&se=2019-06-21T04:06:02Z&st=2019-06-20T20:06:02Z&sip=65.28.47.118&spr=https&sig=RHYOHGMf1xNJcFY5WIBmvajNuDZUAC7N%2B%2Fc8XOnXZaI%3D';
 // KEEP FOR USE IN SDMX URL BUILDER
 // TODO :: clean up
 export function getSDMXDataFlowsFromFile(file) {
@@ -102,6 +105,9 @@ function parseFieldsAndLookups(dimensionProps, attributeProps) {
       type: 'String'
     });
 
+    if (!obs.name.en) {
+      obs.name = { en: obs.name };
+    }
     fields.push({
       name: obs.name.en.toUpperCase().replace(' ', '_'),
       alias: obs.name.en,
@@ -115,6 +121,10 @@ function parseFieldsAndLookups(dimensionProps, attributeProps) {
       alias: `${obs.id}_CODE`,
       type: 'String'
     });
+
+    if (!obs.name.en) {
+      obs.name = { en: obs.name };
+    }
 
     fields.push({
       name: obs.name.en.toUpperCase().replace(' ', '_'),
@@ -180,31 +190,79 @@ export async function parseSDMXDataFile(file) {
     const reader = new FileReader();
     reader.onload = event => {
       const json = JSON.parse(event.target.result);
-      const fc = createFeatureCollection(json);
-      resolve(fc);
+      if (isSDMXValid(json)) {
+        const dimensionProps = json.data.structure.dimensions.observation;
+        const attributeProps = json.data.structure.attributes.observation;
+        const fields = parseFieldsAndLookups(dimensionProps, attributeProps).map(field => field.name);
+        const count = Object.keys(json.data.dataSets[0].observations).length;
+        resolve({ sdmxDataFile: json, isValid: true, count: count, sdmxFields: fields });
+      } else {
+        reject({ isValid: false, count: null, message: 'unable to parse SDMX File' });
+      }
     };
     reader.onerror = error => {
-      reject(error);
+      reject({ isValid: false, count: null, message: error });
     };
     reader.readAsText(file);
   });
+}
+
+function isSDMXValid(json) {
+  return (
+    json.data.structure.dimensions.observation &&
+    json.data.structure.attributes.observation &&
+    json.data.dataSets[0].observations
+  );
 }
 
 /**
  * Load SDMX from an SDMX API URL endpoint
  * @param url
  */
-export async function loadSDMXFromAPI(url) {
-  const options = {
-    url: url,
-    json: true,
-    headers: { accept: SDMX_ACCEPT_HEADER }
+export async function loadSDMXFromAPI(url, returnJson) {
+  let options = {
+    url: url
   };
+
+  if (returnJson) {
+    options.json = true;
+    options.headers = { accept: SDMX_ACCEPT_HEADER };
+  }
 
   return rp(options)
     .then(response => {
-      const fc = createFeatureCollection(response);
-      return { fc: fc, sdmxName: fc.metadata.name };
+      if (returnJson) {
+        if (!response.data) {
+          response = { data: response };
+        }
+        if (isSDMXValid(response)) {
+          const dimensionProps = response.data.structure.dimensions.observation;
+          const attributeProps = response.data.structure.attributes.observation;
+          const fields = parseFieldsAndLookups(dimensionProps, attributeProps).map(field => field.name);
+          const count = Object.keys(response.data.dataSets[0].observations).length;
+
+          return { isValid: true, count: count, sdmxFields: fields };
+        } else {
+          return { isValid: false, count: 0 };
+        }
+      } else {
+        const validXml = xmlParser.validate(response);
+        if (validXml !== true) {
+          console.log(validXml.err);
+          return { isValid: false, count: 0 };
+        }
+
+        const parsedXml = xmlParser.parse(response, {
+          ignoreAttributes: false,
+          ignoreNameSpace: true
+        });
+
+        // continue processing parsed XML data here:::
+        const count = parsedXml.GenericData.DataSet.Obs.length;
+        const idKeys = parsedXml.GenericData.DataSet.Obs[0].ObsKey.Value.map(rec => rec['@_id']);
+        const fields = [...idKeys, ...parsedXml.GenericData.DataSet.Obs[0].Attributes.Value.map(rec => rec['@_id'])];
+        return { isValid: true, count: count, sdmxFields: fields };
+      }
     })
     .catch(err => {
       return err;
@@ -220,7 +278,7 @@ export async function parseGeoJsonGeoFile(file) {
     const reader = new FileReader();
     reader.onload = event => {
       const json = JSON.parse(event.target.result);
-      resolve(json);
+      resolve({ geoJsonData: json });
     };
     reader.onerror = error => {
       reject(error);
@@ -258,15 +316,55 @@ export async function getGeoJsonByUniqueFieldValues(url, where, token) {
   });
 }
 
+export async function featureServiceToAzureBlob(url, token) {
+  const queryResponse = await agoRequest(`${url}/query`, {
+    httpMethod: 'GET',
+    params: {
+      f: 'geojson',
+      outFields: '*',
+      outSR: 4326,
+      returnGeometry: true,
+      token: token,
+      where: '1=1'
+    }
+  });
+
+  debugger;
+  // STILL TOO SLOW - TRY STREAM METHOD
+
+  const uploadResponse = await uploadJSONToAzureBlob(queryResponse);
+  return uploadResponse;
+}
+
+// export async function streamJSONToAzureBlob(json) {
+//   const containerName = 'fromsdmxwebapp';
+//   const blobName = `json_from_sdmx_app_${new Date().getTime()}.json`;
+//   const text = JSON.stringify(json);
+
+//   const blobService = storage.createBlobServiceWithSas(AZURE_BLOB_HOST, AZURE_SAS_TOKEN);
+
+//   return new Promise((resolve, reject) => {
+//     // blobService.createBlockBlobFromText(containerName, blobName, text, err => {
+//     blobService.createWriteStreamToBlockBlob(containerName, blobName, stream, err => {
+//       if (err) {
+//         reject(err);
+//       } else {
+//         const blobUrl = blobService.getUrl(containerName, blobName);
+//         resolve({ blobUrl: blobUrl });
+//       }
+//     });
+//   });
+// }
+
 /**
  * Upload GeoJSON to Azure blob storate
- * @param geojson URL to the feature service
+ * @param json @object json object data
  * @returns Direct URL to uploaded geojson in Azure blob
  */
-export async function uploadGeoJSONToAzureBlob(geojson) {
-  const containerName = 'test';
-  const blobName = `temp_from_sdmx_app_${new Date().getTime()}.geojson`;
-  const text = JSON.stringify(geojson);
+export async function uploadJSONToAzureBlob(json) {
+  const containerName = 'fromsdmxwebapp';
+  const blobName = `json_from_sdmx_app_${new Date().getTime()}.json`;
+  const text = JSON.stringify(json);
 
   const blobService = storage.createBlobServiceWithSas(AZURE_BLOB_HOST, AZURE_SAS_TOKEN);
 
@@ -323,7 +421,7 @@ export function joinSDMXtoGeoJson(geojson, fc, gjField, pGeoJson, sdmxField, pSD
  * @param auth authentication object
  * @returns ItemId of newly created GeoJSON item
  */
-export async function createGeoJsonInArcGISOnline(urlToGeoJson, name, auth) {
+export async function createGeoJsonInArcGISOnline2(urlToGeoJson, name, auth) {
   const item = {
     title: name,
     type: 'GeoJson'
@@ -339,6 +437,23 @@ export async function createGeoJsonInArcGISOnline(urlToGeoJson, name, auth) {
     item,
     params,
     authentication: auth
+  });
+}
+
+export async function createGeoJsonInArcGISOnline(url, name, geojson, token) {
+  const formData = {
+    itemType: 'file',
+    type: 'GeoJson',
+    title: name,
+    file: JSON.stringify(geojson),
+    token: token
+  };
+  return request.post(url, { formData: formData }, function optionalCallback(err, httpResponse, body) {
+    debugger;
+    if (err) {
+      return console.error('upload failed:', err);
+    }
+    console.log('Upload successful!  Server responded with:', body);
   });
 }
 
@@ -380,6 +495,39 @@ export async function checkItemStatus(inUrl, token) {
     httpMethod: 'GET',
     params: {
       f: 'json',
+      token: token
+    }
+  });
+}
+
+/**
+ * Query a Feature Service for GeoJSON based on Unique Values from the SDMX source
+ * @param url URL to the feature service
+ * @param where Where clause including the unique values (ex: ISO IN ('AF', 'IR', 'IN'))
+ * @param token Valid AGO Token
+ */
+export async function queryForSDMXItems(user, orgId, token) {
+  // const orgId = auth.portal;
+  // const query = new SearchQueryBuilder()
+  //   .match(user)
+  //   .in('owner')
+  //   .and()
+  //   .match(orgId)
+  //   .in('orgid')
+  //   .and()
+  //   .match('SDMX')
+  //   .in('typekeywords');
+
+  const query = `owner:"${user}" orgid:${orgId} typekeywords:"SDMX"`;
+
+  // return searchItems(query);
+
+  return agoRequest('https://www.arcgis.com/sharing/rest/search', {
+    httpMethod: 'GET',
+    params: {
+      f: 'json',
+      q: query,
+      num: 10000,
       token: token
     }
   });

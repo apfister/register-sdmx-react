@@ -20,11 +20,7 @@ import { actions as mapActions } from '../redux/reducers/map';
 import { actions as authActions } from '../redux/reducers/auth';
 
 // Components
-import TopNav from 'calcite-react/TopNav';
-import TopNavBrand from 'calcite-react/TopNav/TopNavBrand';
-import TopNavTitle from 'calcite-react/TopNav/TopNavTitle';
-import TopNavLink from 'calcite-react/TopNav/TopNavLink';
-import TopNavList from 'calcite-react/TopNav/TopNavList';
+import TopNav, { TopNavBrand, TopNavTitle, TopNavList, TopNavLink, TopNavActionsList } from 'calcite-react/TopNav';
 
 import LoadScreen from './LoadScreen';
 import UserAccount from './UserAccount';
@@ -37,6 +33,8 @@ import styled from 'styled-components';
 import MyContent from './MyContent';
 import AddItem from './AddItem';
 import AddItemFS from './AddItemFS';
+import Home from './Home';
+import { StyledTopNavLink } from 'calcite-react/TopNav/TopNav-styled';
 
 const Container = styled.div`
   display: flex;
@@ -48,11 +46,8 @@ const Container = styled.div`
 `;
 
 const BodyWrapper = styled.div`
-  display: flex;
-  flex: 1;
   width: 100%;
   height: 100%;
-  flex-direction: column;
   position: relative;
   z-index: 0;
 `;
@@ -73,14 +68,9 @@ const NavList = styled(TopNavList)`
   text-align: left;
 `;
 
-// const StyledLink = styled(Link)``;
-
-// const HeaderNavLink = styled(StyledLink)`
-//   text-decoration: none !important;
-//   ${StyledLink}:hover & {
-//     text-decoration: none !important;
-//   }
-// `;
+const StyledTopNavActionLink = styled(StyledTopNavLink)`
+  font-size: 14px;
+`;
 
 const StyledLink = styled(NavLink)``;
 
@@ -102,6 +92,8 @@ class Main extends Component {
   };
 
   render() {
+    const isLoggedIn = this.props.auth.loggedIn;
+
     return (
       <Container>
         <LoadScreen isLoading={this.props.mapLoaded} />
@@ -110,15 +102,23 @@ class Main extends Component {
           <TopNavTitle href="#">Register SDMX in ArcGIS</TopNavTitle>
           <NavList>
             <TopNavLink active={this.props.currentLocation === '/mycontent'}>
-              <HeaderNavLink to="/mycontent">My Content</HeaderNavLink>
+              <HeaderNavLink to="/mycontent">My SDMX Content</HeaderNavLink>
             </TopNavLink>
             <TopNavLink active={this.props.currentLocation === '/add-fs'}>
               <HeaderNavLink to="/add-fs">Add Item as Feature Service</HeaderNavLink>
             </TopNavLink>
-            <TopNavLink active={this.props.currentLocation === '/add-live'}>
+            {/* <TopNavLink active={this.props.currentLocation === '/add-live'}>
               <HeaderNavLink to="/add-live">Add Item as Live API Link</HeaderNavLink>
-            </TopNavLink>
+            </TopNavLink> */}
           </NavList>
+          <TopNavActionsList>
+            <StyledTopNavActionLink href="https://www.github.com/apfister/register-sdmx-react" target="_blank">
+              Project Home
+            </StyledTopNavActionLink>
+            <StyledTopNavActionLink href="https://www.github.com/apfister/register-sdmx-react/issues" target="_blank">
+              Report an Issue
+            </StyledTopNavActionLink>
+          </TopNavActionsList>
           <UserAccount
             user={this.props.auth.user}
             portal={this.props.auth.user ? this.props.auth.user.portal : null}
@@ -130,9 +130,56 @@ class Main extends Component {
 
         <BodyWrapper>
           <Route exact path="/" render={() => <Redirect to="/mycontent" />} />
+
+          <Route
+            path="/mycontent"
+            render={props =>
+              isLoggedIn ? (
+                <MyContent {...props} />
+              ) : (
+                <Redirect to={{ pathname: '/home', state: { from: props.location } }} />
+              )
+            }
+          />
+
+          <Route
+            path="/add-fs"
+            render={props =>
+              isLoggedIn ? (
+                <AddItemFS {...props} />
+              ) : (
+                <Redirect to={{ pathname: '/home', state: { from: props.location } }} />
+              )
+            }
+          />
+
+          <Route
+            path="/add-live"
+            render={props =>
+              isLoggedIn ? (
+                <AddItem {...props} />
+              ) : (
+                <Redirect to={{ pathname: '/home', state: { from: props.location } }} />
+              )
+            }
+          />
+
+          <Route
+            path="/home"
+            render={props =>
+              isLoggedIn ? (
+                <Redirect to={{ pathname: '/mycontent', state: { from: props.location } }} />
+              ) : (
+                <Home {...props} />
+              )
+            }
+          />
+
+          {/* <Route path="/home" component={Home} /> */}
+          {/* <Route exact path="/" render={() => <Redirect to="/mycontent" />} />
           <Route path="/add-live" component={AddItem} />
           <Route path="/add-fs" component={AddItemFS} />
-          <Route path="/mycontent" component={MyContent} />
+          <Route path="/mycontent" component={MyContent} /> */}
         </BodyWrapper>
       </Container>
     );
