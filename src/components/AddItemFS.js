@@ -7,7 +7,6 @@ import { connect } from 'react-redux';
 import { actions as mapActions } from '../redux/reducers/map';
 import { actions as authActions } from '../redux/reducers/auth';
 
-// import SDMXItemBuilderFS from './SDMXItemBuilderFS';
 import SDMXItemPublisherForm from './SDMXItemPublisherForm';
 
 // Class

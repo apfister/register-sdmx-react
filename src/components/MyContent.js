@@ -66,6 +66,9 @@ class MyContent extends Component {
       <CalciteGridContainer className="leader-1">
         <CalciteGridColumn column="24">
           <ReactTable
+            style={{ maxHeight: '600px' }}
+            defaultPageSize={15}
+            noDataText="No SDMX Items Found"
             data={this.state.tableData}
             columns={this.state.tableColumns}
             defaultSorted={[

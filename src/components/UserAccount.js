@@ -25,25 +25,36 @@ import Button from 'calcite-react/Button';
 
 // Class
 class UserAccount extends Component {
+  menuItemClick = item => {
+    const portal = this.props.portal;
+    const portalUrlKey = portal.url.replace('www', `${portal.urlKey}.maps`);
+    let url = `${portalUrlKey}`;
+
+    if (item === 'profile') {
+      url = `${url}/home/user.html`;
+    }
+
+    window.open(url, '_blank');
+  };
+
   render() {
     const signedInActionsComponent = this.props.user ? (
       <TopNavActionsList style={{ padding: 0 }}>
         <ArcgisAccount
+          hideSwitchAccount={true}
           user={this.props.user}
           portal={this.props.portal}
           onRequestSwitchAccount={() => console.log('switch account clicked')}
           onRequestSignOut={this.props.signOut}>
-          <ArcgisAccountMenuItem onClick={() => console.log('Profile & Settings clicked')}>
-            Profile & Settings
+          <ArcgisAccountMenuItem onClick={() => this.menuItemClick('profile')}>
+            Profile &amp; Settings
           </ArcgisAccountMenuItem>
-          <ArcgisAccountMenuItem onClick={() => console.log('My Esri clicked')}>My Esri</ArcgisAccountMenuItem>
-          <ArcgisAccountMenuItem onClick={() => console.log('Training clicked')}>Training</ArcgisAccountMenuItem>
-          <ArcgisAccountMenuItem onClick={() => console.log('Community & Forums clicked')}>
+          {/* <ArcgisAccountMenuItem onClick={() => console.log('My Esri clicked')}>My Esri</ArcgisAccountMenuItem> */}
+          {/* <ArcgisAccountMenuItem onClick={() => console.log('Training clicked')}>Training</ArcgisAccountMenuItem> */}
+          {/* <ArcgisAccountMenuItem onClick={() => console.log('Community & Forums clicked')}>
             Community &amp; Forums
-          </ArcgisAccountMenuItem>
-          <ArcgisAccountMenuItem onClick={() => console.log('ArcGIS Online clicked')}>
-            ArcGIS Online
-          </ArcgisAccountMenuItem>
+          </ArcgisAccountMenuItem> */}
+          <ArcgisAccountMenuItem onClick={() => this.menuItemClick('ago')}>ArcGIS Online</ArcgisAccountMenuItem>
         </ArcgisAccount>
       </TopNavActionsList>
     ) : null;

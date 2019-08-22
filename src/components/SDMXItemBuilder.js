@@ -9,25 +9,51 @@ import { UserSession } from '@esri/arcgis-rest-auth';
 import { createItem } from '@esri/arcgis-rest-items';
 import { request as agoRequest } from '@esri/arcgis-rest-request';
 
+import { Formik, Field } from 'formik';
+import Form, { FormControl, FormControlLabel, FormHelperText } from 'calcite-react/Form';
+
 // Components
 import Panel, { PanelTitle } from 'calcite-react/Panel';
 import ArcgisItemCard from 'calcite-react/ArcgisItemCard';
 import TextField from 'calcite-react/TextField';
 import Button from 'calcite-react/Button';
 import Tooltip from 'calcite-react/Tooltip';
-import { CalciteA } from 'calcite-react/Elements';
+import { CalciteA, CalciteH6, CalciteP } from 'calcite-react/Elements';
 import Label from 'calcite-react/Label';
 import Loader from 'calcite-react/Loader';
 import InformationIcon from 'calcite-ui-icons-react/InformationIcon';
+
+import Accordion, { AccordionSection, AccordionTitle, AccordionContent } from 'calcite-react/Accordion';
+import Table, {
+  TableHeader,
+  TableHeaderRow,
+  TableHeaderCell,
+  TableBody,
+  TableRow,
+  TableCell
+} from 'calcite-react/Table';
+
+import exampleSDMX from '../services/exampleSDMX.json';
 
 import ComboBox from '@zippytech/react-toolkit/ComboBox';
 import '@zippytech/react-toolkit/ComboBox/index.css';
 
 import styled from 'styled-components';
 import { fetch } from 'whatwg-fetch';
+import CalciteGridContainer from './CalciteGridContainer';
+import CalciteGridColumn from './CalciteGridColumn';
 
 const Separator = styled.hr`
   width: 75%;
+`;
+
+const AccordionSectionStyled = styled(AccordionSection)`
+  max-height: 200px;
+  overflow: scroll;
+`;
+
+const TableCellStyled = styled(TableCell)`
+  padding: 0 0 0 5px;
 `;
 
 // Class
@@ -48,10 +74,18 @@ class SDMXItemBuilder extends Component {
       outputUrl: '',
       keysWithPossibleValues: [],
       outputUrlIndicators: [],
+      activeSectionIndexes: [],
+      selectedDataFlowValue:
+        'http://unepliveservices.unep.org/nsiws/rest/dataflow/IAEG-SDGs/SDG/1.0/?references=all&detail=full',
+      selectedDataFlowItem: null,
       outputUrlComponents: {
         baseUrl: '',
         keyParts: [],
         suffix: 'FeatureServer/0'
+      },
+      formValues: {
+        sdmxDataFlow:
+          'http://unepliveservices.unep.org/nsiws/rest/dataflow/IAEG-SDGs/SDG/1.0/?references=all&detail=full'
       },
       numRecords: '',
       itemInfo: {
@@ -75,6 +109,13 @@ class SDMXItemBuilder extends Component {
       // do previous click handler stuff
       console.log('go!');
     }
+  }
+
+  handleDataFlowSelectChange(value, item) {
+    this.setState({
+      selectedValue: value,
+      selectedItem: item
+    });
   }
 
   updateKoopProviderValue = e => {
@@ -240,7 +281,219 @@ class SDMXItemBuilder extends Component {
     );
   };
 
+  onAccordionChange = (evt, index) => {
+    this.state.activeSectionIndexes.includes(index)
+      ? this.setState({
+          activeSectionIndexes: this.state.activeSectionIndexes.filter(item => index !== item)
+        })
+      : this.setState({
+          activeSectionIndexes: [...this.state.activeSectionIndexes, index]
+        });
+  };
+
+  useSDMXUrlPreset = (url, format) => {
+    this.props.onSDMXExampleChosen(url, format);
+  };
+
   render() {
+    return (
+      <Table style={{ marginBottom: '0' }}>
+        <TableHeader>
+          <TableHeaderRow>
+            <TableHeaderCell />
+            {/* <TableHeaderCell>Name</TableHeaderCell> */}
+            <TableHeaderCell>Description</TableHeaderCell>
+            <TableHeaderCell>Source</TableHeaderCell>
+            <TableHeaderCell>Format</TableHeaderCell>
+          </TableHeaderRow>
+        </TableHeader>
+        <TableBody>
+          {exampleSDMX.data.map((item, index) => (
+            <TableRow key={`tblrow_${index}`}>
+              <TableCellStyled>
+                <Button
+                  extraSmall
+                  transparent
+                  onClick={() => {
+                    this.useSDMXUrlPreset(item.url, item.format);
+                  }}>
+                  Use
+                </Button>
+              </TableCellStyled>
+              {/* <TableCellStyled>{item.name}</TableCellStyled> */}
+              <TableCellStyled>{item.description}</TableCellStyled>
+              <TableCellStyled>{item.source}</TableCellStyled>
+              <TableCellStyled className="text-center">
+                {item.format === 1 ? <Label green>JSON</Label> : <Label blue>XML</Label>}
+              </TableCellStyled>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    );
+  }
+
+  render__n() {
+    return (
+      <Panel>
+        <CalciteGridColumn column="18">
+          <CalciteGridColumn column="4" className="leader-half">
+            <CalciteP>SDMX API Query URL</CalciteP>
+          </CalciteGridColumn>
+          <CalciteGridColumn column="13">
+            <TextField name="sdmxDataFlow" value={this.state.sdmxDataflowUrl} fullWidth />
+          </CalciteGridColumn>
+          <CalciteGridColumn column="17" className="leader-quarter">
+            <Accordion
+              activeSectionIndexes={this.state.activeSectionIndexes}
+              onAccordionChange={this.onAccordionChange}
+              fullWidth>
+              <AccordionSectionStyled fullWidth>
+                <AccordionTitle>Example SDMX Providers</AccordionTitle>
+                <AccordionContent>
+                  <Table style={{ marginBottom: '0' }}>
+                    <TableBody>
+                      <TableRow>
+                        <TableCellStyled>
+                          <Button
+                            extraSmall
+                            transparent
+                            onClick={() => {
+                              this.useSDMXUrlPreset('http://unepliveservices.unep.org/nsiws/rest/dataflow/');
+                            }}>
+                            Use
+                          </Button>
+                        </TableCellStyled>
+                        <TableCellStyled>United Nations Enviornment</TableCellStyled>
+                        <TableCellStyled>[description]</TableCellStyled>
+                        <TableCellStyled>
+                          <Label green>JSON</Label>
+                        </TableCellStyled>
+                        <TableCellStyled>[source]</TableCellStyled>
+                      </TableRow>
+                      <TableRow>
+                        <TableCellStyled>
+                          <Button
+                            extraSmall
+                            transparent
+                            onClick={() => {
+                              this.useSDMXUrlPreset('https://stats.pacificdata.org/data-nsi/Rest/dataflow/');
+                            }}>
+                            Use
+                          </Button>
+                        </TableCellStyled>
+                        <TableCellStyled>Stats Pacific Data</TableCellStyled>
+                        <TableCellStyled>[description]</TableCellStyled>
+                        <TableCellStyled>
+                          <Label blue>XML</Label>
+                        </TableCellStyled>
+                        <TableCellStyled>[source]</TableCellStyled>
+                      </TableRow>
+                      <TableRow>
+                        <TableCellStyled>
+                          <Button
+                            extraSmall
+                            transparent
+                            onClick={() => {
+                              this.useSDMXUrlPreset('https://api.data.unicef.org/sdmx/Rest/dataflow/');
+                            }}>
+                            Use
+                          </Button>
+                        </TableCellStyled>
+                        <TableCellStyled>UNICEF</TableCellStyled>
+                        <TableCellStyled>[description]</TableCellStyled>
+                        <TableCellStyled>
+                          <Label green>JSON</Label>
+                        </TableCellStyled>
+                        <TableCellStyled>[source]</TableCellStyled>
+                      </TableRow>
+                    </TableBody>
+                  </Table>
+                </AccordionContent>
+              </AccordionSectionStyled>
+            </Accordion>
+          </CalciteGridColumn>
+        </CalciteGridColumn>
+      </Panel>
+    );
+  }
+
+  render_oldtwo() {
+    return (
+      <Formik initialValues={this.state.formValues} onSubmit={this.publishLayer} validate={this.validateIt}>
+        {({ values, errors, touched, handleSubmit, isSubmitting }) => (
+          <Form onSubmit={handleSubmit}>
+            <Panel>
+              <CalciteGridColumn column="18">
+                <FormControl
+                  horizontal
+                  fullWidth
+                  success={touched.state && !errors.state ? true : false}
+                  error={touched.state && errors.state ? true : false}>
+                  <FormControlLabel style={{ minWidth: '200px' }}>SDMX Data Flow URL</FormControlLabel>
+                  <Field component={TextField} name="sdmxDataFlow" fullWidth />
+                  <FormHelperText>{(touched.state && errors.state) || null}</FormHelperText>
+                  {/* </CalciteGridColumn> */}
+                  {/* <CalciteGridColumn column="2" className="margin-left-0 leader-quarter"> */}
+                  {/* <Button className="column-4 margin-left-1" onClick={this.showOptions}>
+                    Show Options
+                  </Button> */}
+                  {/* </CalciteGridColumn> */}
+                </FormControl>
+
+                <Accordion
+                  activeSectionIndexes={this.state.activeSectionIndexes}
+                  onAccordionChange={this.onAccordionChange}
+                  fullWidth>
+                  <AccordionSection fullWidth>
+                    <AccordionTitle>Example SDMX Providers</AccordionTitle>
+                    <AccordionContent>
+                      <CalciteGridContainer>
+                        <CalciteGridColumn column="4">
+                          <CalciteH6>United Nations Enviornment</CalciteH6>
+                        </CalciteGridColumn>
+                        <CalciteGridColumn column="4">
+                          <Button
+                            extraSmall
+                            transparent
+                            onClick={() => {
+                              this.useSDMXUrlPreset(
+                                'http://stat.data.abs.gov.au/sdmx-json/dataflow/ABS_ANNUAL_ERP_ASGS2016/'
+                              );
+                            }}>
+                            Use
+                          </Button>
+                        </CalciteGridColumn>
+                      </CalciteGridContainer>
+                      <CalciteGridContainer>
+                        <CalciteGridColumn column="4">
+                          <CalciteH6>Australia Statistics</CalciteH6>
+                        </CalciteGridColumn>
+                        <CalciteGridColumn column="4">
+                          <Button
+                            extraSmall
+                            transparent
+                            onClick={() => {
+                              this.useSDMXUrlPreset(
+                                'http://stat.data.abs.gov.au/sdmx-json/dataflow/ABS_ANNUAL_ERP_ASGS2016/'
+                              );
+                            }}>
+                            Use
+                          </Button>
+                        </CalciteGridColumn>
+                      </CalciteGridContainer>
+                    </AccordionContent>
+                  </AccordionSection>
+                </Accordion>
+              </CalciteGridColumn>
+            </Panel>
+          </Form>
+        )}
+      </Formik>
+    );
+  }
+
+  render_old() {
     return (
       <div>
         <div className="leader-1 trailer-1 padding-left-3 padding-right-3 text-left">

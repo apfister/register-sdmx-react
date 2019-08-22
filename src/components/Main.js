@@ -174,12 +174,6 @@ class Main extends Component {
               )
             }
           />
-
-          {/* <Route path="/home" component={Home} /> */}
-          {/* <Route exact path="/" render={() => <Redirect to="/mycontent" />} />
-          <Route path="/add-live" component={AddItem} />
-          <Route path="/add-fs" component={AddItemFS} />
-          <Route path="/mycontent" component={MyContent} /> */}
         </BodyWrapper>
       </Container>
     );

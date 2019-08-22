@@ -14,7 +14,7 @@ import { Formik, Field } from 'formik';
 import Panel, { PanelTitle } from 'calcite-react/Panel';
 import ArcgisItemCard from 'calcite-react/ArcgisItemCard';
 import TextField from 'calcite-react/TextField';
-import Button, { ButtonGroup } from 'calcite-react/Button';
+import Button from 'calcite-react/Button';
 import Label from 'calcite-react/Label';
 import Loader from 'calcite-react/Loader';
 import Tabs, { TabNav, TabTitle, TabContents, TabSection } from 'calcite-react/Tabs';
@@ -23,15 +23,13 @@ import FileUploader from 'calcite-react/FileUploader';
 import Alert from 'calcite-react/Alert';
 import Radio from 'calcite-react/Radio';
 import Switch from 'calcite-react/Switch';
+import Accordion, { AccordionSection, AccordionTitle, AccordionContent } from 'calcite-react/Accordion';
+import Table, { TableHeader, TableHeaderRow, TableBody, TableRow, TableCell } from 'calcite-react/Table';
 
-import Table, { TableBody, TableRow, TableCell } from 'calcite-react/Table';
+import exampleSDMX from '../services/exampleSDMX.json';
 
 import { Progress } from 'react-sweet-progress';
 import 'react-sweet-progress/lib/style.css';
-
-// Import React Table
-import ReactTable from 'react-table';
-import 'react-table/react-table.css';
 
 import CalciteGridContainer from './CalciteGridContainer';
 import CalciteGridColumn from './CalciteGridColumn';
@@ -44,7 +42,6 @@ import {
   loadSDMXFromAPI,
   loadFeatureServiceFields
 } from '../services/sdmxRequest';
-import { select } from '@redux-saga/core/effects';
 
 const RadioControlContainer = styled.div`
   max-height: 300px;
@@ -52,9 +49,13 @@ const RadioControlContainer = styled.div`
   border: 1px solid #cccccc;
 `;
 
-const BaseGridContainer = styled(CalciteGridContainer)`
-  margin-left: 10px;
-  margin-right: 10px;
+const AccordionSectionStyled = styled(AccordionSection)`
+  // max-height: 200px;
+  // overflow: scroll;
+`;
+
+const TableCellStyled = styled(TableCell)`
+  padding: 0 0 0 5px;
 `;
 
 // Class
@@ -67,6 +68,8 @@ class SDMXItemPublisherForm extends Component {
       itemSuccess: true,
 
       isLoadingFCFromAPI: false,
+      isLoadingFCFromCsv: false,
+      isLoadingFCFromJson: false,
       isLoadingFSFromURL: false,
       isPublishingFeatureService: false,
       hideGeoTable: true,
@@ -75,6 +78,7 @@ class SDMXItemPublisherForm extends Component {
       hideFCFilters: true,
       hideGeoFilters: true,
 
+      activeSectionIndexes: [],
       newItem: null,
       stashedGeographyField: '',
       stashedSDMXField: '',
@@ -88,12 +92,14 @@ class SDMXItemPublisherForm extends Component {
         prefixGeoJSON: '',
         newItemName: '',
         loadGeoFromFSUrl:
-          'https://services3.arcgis.com/7pxWboj3YvCWYdcm/ArcGIS/rest/services/1270055001_ste_2016_aust_shape/FeatureServer/0',
+          'https://services1.arcgis.com/pf6KDbd8NVL1IUHa/arcgis/rest/services/World_Population_Estimate_Sources/FeatureServer/0',
         loadSDMXFromAPIUrl:
-          'http://cambodgia-statvm1.eastasia.cloudapp.azure.com/SeptemberDisseminateNSIService/rest/data/KH_NIS,DF_PRODUCTION,1.1/.........A/?startPeriod=2016&endPeriod=2018&dimensionAtObservation=AllDimensions'
+          'https://api.data.unicef.org/sdmx/Rest/data/UNICEF,CME_DF,1.0/.MRY0T4._T.269../?dimensionAtObservation=AllDimensions&startPeriod=2017-06&endPeriod=2017-06'
       },
       isValidatingGeoJsonFile: false,
+      isValidatingGeoJsonUrl: false,
       isValidatingSDMXFile: false,
+      isValidatingSDMXUrl: false,
       activeSDMXTabIndex: 0,
       activeGeoTabIndex: 0,
       fc: {
@@ -110,6 +116,8 @@ class SDMXItemPublisherForm extends Component {
       hasSDMX: false,
       hasGeography: false,
       sdmxObservationCount: 0,
+      sdmxCsvObservationCount: 0,
+      sdmxJsonObservationCount: 0,
       geographiesCount: 0,
       sdmxFields: [],
       sdmxDataFile: null,
@@ -140,64 +148,59 @@ class SDMXItemPublisherForm extends Component {
    * Load SDMX from a local file
    * @param file
    */
-  onSDMXFileChange = async file => {
+  onSDMXFileChange = async (file, isCsv) => {
     this.setState({ isValidatingSDMXFile: true });
 
     let response;
     try {
-      response = await parseSDMXDataFile(file);
+      response = await parseSDMXDataFile(file, isCsv);
 
-      this.setState({
+      let stateUpdate = {
         sdmxDataFile: response.sdmxDataFile,
         hasSDMX: true,
         isValidatingSDMXFile: false,
-        sdmxObservationCount: response.count,
         sdmxFields: response.sdmxFields,
-        sdmxName: file.name.replace(/-/g, '_').replace('.json', '')
-      });
+        sdmxName: file.name
+          .replace(/-/g, '_')
+          .replace('.json', '')
+          .replace('.csv', '')
+      };
+
+      if (isCsv) {
+        stateUpdate.sdmxCsvObservationCount = response.count;
+      } else {
+        stateUpdate.sdmxObservationCount = response.count;
+      }
+
+      this.setState(stateUpdate);
     } catch (err) {
       console.log(err);
       this.setState({ sdmxDataFile: null, hasSDMX: false, isValidatingSDMXFile: false });
     }
   };
 
+  buildSDMXUrl = () => {
+    this.props.openBuilderModal();
+  };
   /**
    * Load SDMX from an SDMX API URL endpoint
    * @param url
    */
   loadSDMXFromUrl = async url => {
     if (url && url !== '') {
-      this.setState({ isLoadingFCFromAPI: true });
+      this.setState({ isLoadingFCFromAPI: true, isValidatingSDMXUrl: true });
 
-      const returnJson = this.state.selectedResponseFormat === 1 ? true : false;
+      // const returnJson = this.state.selectedResponseFormat === 1 ? true : false;
       try {
-        const response = await loadSDMXFromAPI(url, returnJson);
+        const response = await loadSDMXFromAPI(url);
         this.setState({
           hasSDMX: true,
           sdmxObservationCount: response.count,
           sdmxFields: response.sdmxFields,
           sdmxName: response.sdmxName,
-          isLoadingFCFromAPI: false
+          isLoadingFCFromAPI: false,
+          isValidatingSDMXUrl: false
         });
-      } catch (err) {
-        console.log(err);
-        this.setState({ isLoadingFCFromAPI: false });
-      }
-    }
-  };
-
-  /**
-   * Load SDMX from an SDMX API URL endpoint
-   * @param url
-   */
-  loadSDMXFromUrl_o = async url => {
-    if (url && url !== '') {
-      this.setState({ fc: { features: [] }, isLoadingFCFromAPI: true });
-
-      const response = await loadSDMXFromAPI(url);
-
-      try {
-        this.setState({ fc: response.fc, sdmxName: response.sdmxName, isLoadingFCFromAPI: false });
       } catch (err) {
         console.log(err);
         this.setState({ isLoadingFCFromAPI: false });
@@ -295,8 +298,8 @@ class SDMXItemPublisherForm extends Component {
     });
 
     // collect parameters
-    // const host = 'http://localhost:3000';
-    const host = 'https://sdmx-express.azurewebsites.net';
+    const host = 'http://localhost:3000';
+    // const host = 'https://sdmx-express.azurewebsites.net';
     const requestUrl = `${host}/publishSDMX`;
 
     let requestOptions = {
@@ -307,11 +310,20 @@ class SDMXItemPublisherForm extends Component {
         title: values.newItemName,
         token,
         userContentUrl: userContentUrl,
-        sdmxApiFormat: this.state.selectedResponseFormat === 1 ? 'json' : 'xml'
+        isSDMXUploadCsv: false,
+        sdmxApiFormat: 'json'
+        // ,sdmxApiFormat: this.state.selectedResponseFormat === 1 ? 'json' : 'xml'
       }
     };
 
     if (this.state.activeSDMXTabIndex === 1) {
+      if (values.sdmxdatacsvfile && values.sdmxdatacsvfile[0]) {
+        let fd = new FormData();
+        fd.append('sdmxFile', values.sdmxdatacsvfile[0]);
+        requestOptions.data = fd;
+        requestOptions.params.isSDMXUploadCsv = true;
+      }
+    } else if (this.state.activeSDMXTabIndex === 2) {
       if (values.sdmxdatajsonfile && values.sdmxdatajsonfile[0]) {
         let fd = new FormData();
         fd.append('sdmxFile', values.sdmxdatajsonfile[0]);
@@ -342,44 +354,24 @@ class SDMXItemPublisherForm extends Component {
 
     try {
       const response = await axios(requestOptions);
-      if (response.data && response.data.checkJobStatusUrl) {
-        const timer = setInterval(async () => {
-          let checkResponse = null;
-          try {
-            checkResponse = await axios.get(response.data.checkJobStatusUrl);
-          } catch (error) {
-            clearInterval(timer);
-            this.logError(`unable to get status check from server :: ${response.data.checkJobStatusUrl}`, actions);
-            return;
-          }
+      if (response.data) {
+        actions.setSubmitting(false);
 
-          if (checkResponse.data.isCompleted && checkResponse.data !== null) {
-            clearInterval(timer);
+        this.setState({
+          publishLog: [],
+          isPublishingFeatureService: false
+        });
 
-            actions.setSubmitting(false);
+        const publishedItemId = response.data.itemId;
+        const itemInfo = await getItem(publishedItemId, { authentication: this.state.userAuth });
 
-            this.setState({
-              publishLog: [],
-              isPublishingFeatureService: false
-            });
-
-            const publishedItemId = checkResponse.data.data.itemId;
-            const itemInfo = await getItem(publishedItemId, { authentication: this.state.userAuth });
-
-            this.setState({
-              newItem: itemInfo,
-              isSuccess: true
-            });
-          } else if (!checkResponse.data.isCompleted && !checkResponse.data.isFailed && !checkResponse.data.error) {
-            this.setState({ percentProgress: parseInt(checkResponse.data.progress) });
-          } else if (checkResponse.data.isFailed || checkResponse.data.error) {
-            clearInterval(timer);
-            this.logError(`Failure processing. ${checkResponse.data.failedReason}`, actions);
-          }
-        }, 1000);
+        this.setState({
+          newItem: itemInfo,
+          isSuccess: true
+        });
       }
     } catch (error) {
-      this.logError(`Unable to connect to server. ${requestUrl} may be unreachable.`, actions);
+      this.logError(`Unable to connect to server. ${requestUrl} may be unreachable.`, actions, error);
     }
   };
 
@@ -392,6 +384,34 @@ class SDMXItemPublisherForm extends Component {
       );
     } else if (this.state.sdmxObservationCount > 0) {
       return <Label>{this.state.sdmxObservationCount} observations found</Label>;
+    } else {
+      return null;
+    }
+  };
+
+  getSDMXCsvStatusReport = () => {
+    if (this.state.isLoadingFCFromCsv || this.state.isValidatingSDMXFile) {
+      return (
+        <Loader className="text-left" sizeRatio={0.5}>
+          {this.state.isValidatingSDMXFile ? 'Loading ...' : 'Querying ...'}
+        </Loader>
+      );
+    } else if (this.state.sdmxCsvObservationCount > 0) {
+      return <Label>{this.state.sdmxCsvObservationCount} observations found</Label>;
+    } else {
+      return null;
+    }
+  };
+
+  getSDMXJsonStatusReport = () => {
+    if (this.state.isLoadingFCFromJson || this.state.isValidatingSDMXFile) {
+      return (
+        <Loader className="text-left" sizeRatio={0.5}>
+          {this.state.isValidatingSDMXFile ? 'Loading ...' : 'Querying ...'}
+        </Loader>
+      );
+    } else if (this.state.sdmxJsonObservationCount > 0) {
+      return <Label>{this.state.sdmxJsonObservationCount} observations found</Label>;
     } else {
       return null;
     }
@@ -431,7 +451,7 @@ class SDMXItemPublisherForm extends Component {
     }
   };
 
-  getPublishStatusReport = () => {
+  getPublishStatusReport_old = () => {
     if (this.state.isPublishingFeatureService) {
       // return <Loader className="text-left" sizeRatio={0.5} />;
       const percComplete = this.state.percentProgress;
@@ -463,6 +483,14 @@ class SDMXItemPublisherForm extends Component {
           percent={percComplete}
         />
       );
+    } else {
+      return null;
+    }
+  };
+
+  getPublishStatusReport = () => {
+    if (this.state.isPublishingFeatureService) {
+      return <Loader className="text-left leader-half margin-left-half" sizeRatio={0.5} />;
     } else {
       return null;
     }
@@ -511,8 +539,8 @@ class SDMXItemPublisherForm extends Component {
   /**
    * Log any errors
    */
-  logError = (message, actions) => {
-    console.log(message);
+  logError = (message, actions, error) => {
+    console.log(message, error);
     this.setState({
       isSuccess: false,
       isPublishingFeatureService: false,
@@ -541,6 +569,10 @@ class SDMXItemPublisherForm extends Component {
       } else if (values.loadSDMXFromAPIUrl === '') {
         errors.loadSDMXFromAPIUrl = 'SDMX API Url can not be blank.';
       }
+    } else if (this.state.activeSDMXTabIndex === 1) {
+      if (values.sdmxdatacsvfile === null) {
+        errors.sdmxdatacsvfile = 'Please select a CSV file.';
+      }
     } else {
       if (values.sdmxdatajsonfile === null) {
         errors.sdmxdatajsonfile = 'Please select a JSON file.';
@@ -568,11 +600,25 @@ class SDMXItemPublisherForm extends Component {
     return errors;
   };
 
+  onAccordionChange = (evt, index) => {
+    this.state.activeSectionIndexes.includes(index)
+      ? this.setState({
+          activeSectionIndexes: this.state.activeSectionIndexes.filter(item => index !== item)
+        })
+      : this.setState({
+          activeSectionIndexes: [...this.state.activeSectionIndexes, index]
+        });
+  };
+
   render() {
     return (
       <CalciteGridContainer className="leader-1">
-        <Formik initialValues={this.state.formValues} onSubmit={this.publishLayer} validate={this.validateIt}>
-          {({ values, errors, touched, handleSubmit, isSubmitting }) => (
+        <Formik
+          enableReinitialize={true}
+          initialValues={this.state.formValues}
+          onSubmit={this.publishLayer}
+          validate={this.validateIt}>
+          {({ values, errors, touched, handleSubmit, isSubmitting, setFieldValue }) => (
             <Form onSubmit={handleSubmit}>
               <CalciteGridColumn column="24">
                 <Panel className="text-left">
@@ -580,6 +626,7 @@ class SDMXItemPublisherForm extends Component {
                   <Tabs onTabChange={this.onSDMXTabChange} activeTabIndex={this.state.activeSDMXTabIndex}>
                     <TabNav>
                       <TabTitle>SDMX API URL</TabTitle>
+                      <TabTitle>CSV File Upload</TabTitle>
                       <TabTitle>JSON File Upload</TabTitle>
                     </TabNav>
                     <TabContents>
@@ -587,10 +634,12 @@ class SDMXItemPublisherForm extends Component {
                         <FormControl
                           success={touched.loadSDMXFromAPIUrl && !errors.loadSDMXFromAPIUrl ? true : false}
                           error={touched.loadSDMXFromAPIUrl && errors.loadSDMXFromAPIUrl ? true : false}>
-                          <CalciteGridColumn column="14">
-                            <FormControlLabel>Enter in a Url to an SDMX API Endpoint</FormControlLabel>
+                          <CalciteGridColumn column="22">
+                            <CalciteGridColumn column="12">
+                              <FormControlLabel>Enter in a Url to an SDMX API Endpoint</FormControlLabel>
+                            </CalciteGridColumn>
                           </CalciteGridColumn>
-                          <CalciteGridColumn column="18 trailer-1">
+                          <CalciteGridColumn column="22 trailer-1">
                             <Field
                               disabled={this.state.isLoadingFCFromAPI}
                               component={TextField}
@@ -601,35 +650,57 @@ class SDMXItemPublisherForm extends Component {
                               {(touched.loadSDMXFromAPIUrl && errors.loadSDMXFromAPIUrl) || null}
                             </FormHelperText>
                           </CalciteGridColumn>
-                          <CalciteGridColumn column="18">
-                            <CalciteGridColumn column="3">
-                              <FormControlLabel>Response Format</FormControlLabel>
-                            </CalciteGridColumn>
-                            <CalciteGridColumn column="5">
-                              <ButtonGroup isToggle>
-                                <Button
-                                  extraSmall
-                                  clear={this.state.selectedResponseFormat !== 1}
-                                  onClick={() => {
-                                    this.selectResponseFormatButton(1);
-                                  }}>
-                                  JSON
-                                </Button>
-                                <Button
-                                  extraSmall
-                                  clear={this.state.selectedResponseFormat !== 2}
-                                  onClick={() => {
-                                    this.selectResponseFormatButton(2);
-                                  }}>
-                                  XML
-                                </Button>
-                              </ButtonGroup>
-                            </CalciteGridColumn>
+
+                          <CalciteGridColumn column="22">
+                            <Accordion
+                              activeSectionIndexes={this.state.activeSectionIndexes}
+                              onAccordionChange={this.onAccordionChange}
+                              fullWidth>
+                              <AccordionSectionStyled fullWidth>
+                                <AccordionTitle>Example SDMX API Queries</AccordionTitle>
+                                <AccordionContent>
+                                  <Table blue striped style={{ marginBottom: '0' }}>
+                                    <TableHeader>
+                                      <TableHeaderRow>
+                                        <TableCellStyled />
+                                        <TableCellStyled>Name</TableCellStyled>
+                                        <TableCellStyled>Description</TableCellStyled>
+                                        <TableCellStyled>Source</TableCellStyled>
+                                      </TableHeaderRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                      {exampleSDMX.data.map((item, index) => (
+                                        <TableRow key={`tblrow_${index}`}>
+                                          <TableCellStyled>
+                                            <Button
+                                              extraSmall
+                                              transparent
+                                              onClick={() => {
+                                                setFieldValue('loadSDMXFromAPIUrl', item.url);
+                                                setFieldValue('loadGeoFromFSUrl', item.fsUrl);
+                                                // this.selectResponseFormatButton(item.format);
+                                              }}>
+                                              Use
+                                            </Button>
+                                          </TableCellStyled>
+                                          <TableCellStyled>{item.name}</TableCellStyled>
+                                          <TableCellStyled>{item.description}</TableCellStyled>
+                                          <TableCellStyled>{item.source}</TableCellStyled>
+                                          {/* <TableCellStyled className="text-center">
+                                            {item.format === 1 ? <Label green>JSON</Label> : <Label blue>XML</Label>}
+                                          </TableCellStyled> */}
+                                        </TableRow>
+                                      ))}
+                                    </TableBody>
+                                  </Table>
+                                </AccordionContent>
+                              </AccordionSectionStyled>
+                            </Accordion>
                           </CalciteGridColumn>
-                          <CalciteGridColumn column="18">
+                          <CalciteGridColumn column="18" className="leader-half">
                             <CalciteGridColumn column="2">
                               <Button
-                                disabled={this.state.isLoadingFCFromAPI}
+                                disabled={this.state.isLoadingFCFromAPI || this.state.isPublishingFeatureService}
                                 onClick={() => this.loadSDMXFromUrl(values.loadSDMXFromAPIUrl)}>
                                 {this.state.isLoadingFCFromAPI ? 'Checking ...' : 'Check URL'}
                               </Button>
@@ -638,6 +709,28 @@ class SDMXItemPublisherForm extends Component {
                               {this.getSDMXStatusReport()}
                             </CalciteGridColumn>
                           </CalciteGridColumn>
+                        </FormControl>
+                      </TabSection>
+                      <TabSection>
+                        <FormControl
+                          success={touched.sdmxdatacsvfile && !errors.sdmxdatacsvfile ? true : false}
+                          error={touched.sdmxdatacsvfile && errors.sdmxdatacsvfile ? true : false}>
+                          <FormControlLabel>Upload a CSV File</FormControlLabel>
+                          <CalciteGridColumn column="8">
+                            <Field
+                              component={FileUploader}
+                              name="sdmxdatacsvfile"
+                              accept="text/csv"
+                              onChange={e => {
+                                const file = e.currentTarget.files[0];
+                                this.onSDMXFileChange(file, 'csv');
+                              }}
+                            />
+                          </CalciteGridColumn>
+                          <CalciteGridColumn column="1" className="leader-half">
+                            {this.getSDMXCsvStatusReport()}
+                          </CalciteGridColumn>
+                          <FormHelperText>{(touched.sdmxdatacsvfile && errors.sdmxdatacsvfile) || null}</FormHelperText>
                         </FormControl>
                       </TabSection>
                       <TabSection>
@@ -657,7 +750,7 @@ class SDMXItemPublisherForm extends Component {
                             />
                           </CalciteGridColumn>
                           <CalciteGridColumn column="1" className="leader-half">
-                            <div className="margin-left-2">{this.getSDMXStatusReport()}</div>
+                            {this.getSDMXJsonStatusReport()}
                           </CalciteGridColumn>
                           <FormHelperText>
                             {(touched.sdmxdatajsonfile && errors.sdmxdatajsonfile) || null}
@@ -690,23 +783,22 @@ class SDMXItemPublisherForm extends Component {
                     <TabNav>
                       <TabTitle>From a Feature Service URL</TabTitle>
                       <TabTitle>From GeoJSON File</TabTitle>
-                      {/* <TabTitle>From a Shapefile</TabTitle> */}
                     </TabNav>
                     <TabContents>
                       <TabSection>
                         <FormControl
                           success={touched.loadGeoFromFSUrl && !errors.loadGeoFromFSUrl ? true : false}
                           error={touched.loadGeoFromFSUrl && errors.loadGeoFromFSUrl ? true : false}>
-                          <CalciteGridColumn column="14">
+                          <CalciteGridColumn column="22">
                             <FormControlLabel>Enter in a Url to a Feature Service</FormControlLabel>
                           </CalciteGridColumn>
-                          <CalciteGridColumn column="18 trailer-1">
+                          <CalciteGridColumn column="22 trailer-1">
                             <Field component={TextField} type="textarea" name="loadGeoFromFSUrl" />
                             <FormHelperText>
                               {(touched.loadGeoFromFSUrl && errors.loadGeoFromFSUrl) || null}
                             </FormHelperText>
                           </CalciteGridColumn>
-                          <CalciteGridColumn column="18">
+                          <CalciteGridColumn column="22">
                             <CalciteGridColumn column="2">
                               <Button onClick={() => this.loadGeoFieldsFromFeatureService(values.loadGeoFromFSUrl)}>
                                 {this.state.isLoadingFSFromURL ? 'Checking Feature Service ...' : 'Check URL'}
@@ -740,7 +832,6 @@ class SDMXItemPublisherForm extends Component {
                           <FormHelperText>{(touched.geojsongeofile && errors.geojsongeofile) || null}</FormHelperText>
                         </FormControl>
                       </TabSection>
-                      {/* <TabSection>TODO >></TabSection> */}
                     </TabContents>
                   </Tabs>
                   {this.state.hasGeography && this.state.hasSDMX ? (
@@ -791,27 +882,39 @@ class SDMXItemPublisherForm extends Component {
                   <FormControl
                     success={touched.newItemName && !errors.newItemName ? true : false}
                     error={touched.newItemName && errors.newItemName ? true : false}>
-                    <CalciteGridContainer>
-                      <CalciteGridColumn column="10">
-                        <Field
-                          disabled={this.state.isLoadingFCFromAPI}
-                          component={TextField}
-                          type="text"
-                          name="newItemName"
-                        />
-                        <FormHelperText>{(touched.newItemName && errors.newItemName) || null}</FormHelperText>
-                      </CalciteGridColumn>
-                      <CalciteGridColumn column="3">
-                        <Button extraLarge disabled={isSubmitting} type="submit">
-                          {isSubmitting ? 'Publishing ...' : 'Publish'}
-                        </Button>
-                      </CalciteGridColumn>
-                    </CalciteGridContainer>
-                    <CalciteGridColumn column="6" className="leader-half">
+                    <CalciteGridColumn column="22">
+                      <Field
+                        className="column-8"
+                        disabled={this.state.isLoadingFCFromAPI}
+                        component={TextField}
+                        type="text"
+                        name="newItemName"
+                      />
+                      <Button
+                        className="column-6"
+                        style={{ marginLeft: '2rem', marginRight: '2rem' }}
+                        extraLarge
+                        disabled={isSubmitting || this.state.isValidatingSDMXUrl || this.state.isValidatingGeoJsonFile}
+                        type="submit">
+                        {isSubmitting ? 'Publishing ...' : 'Publish'}
+                      </Button>
                       {this.getPublishStatusReport()}
                     </CalciteGridColumn>
+                    <FormHelperText>{(touched.newItemName && errors.newItemName) || null}</FormHelperText>
                   </FormControl>
                   <br />
+                  {this.state.isSuccess ? (
+                    <CalciteGridColumn column="22">
+                      <Panel className="column-18 text-left leader-1 trailer-2">
+                        <PanelTitle>New Item in ArcGIS Online</PanelTitle>
+                        <ArcgisItemCard
+                          className="success-panel column-16"
+                          item={this.state.newItem}
+                          onClick={this.onItemCardClick}
+                        />
+                      </Panel>
+                    </CalciteGridColumn>
+                  ) : null}
                   {this.state.publishLog.length > 0 ? (
                     <Table className="leader-1 column-14">
                       <TableBody>
@@ -836,16 +939,6 @@ class SDMXItemPublisherForm extends Component {
                   ) : null}
                 </Panel>
               </CalciteGridColumn>
-              {this.state.isSuccess ? (
-                <Panel className="column-24 text-left leader-1 trailer-2">
-                  <PanelTitle>New Item in ArcGIS Online</PanelTitle>
-                  <ArcgisItemCard
-                    className="success-panel column-16"
-                    item={this.state.newItem}
-                    onClick={this.onItemCardClick}
-                  />
-                </Panel>
-              ) : null}
             </Form>
           )}
         </Formik>
