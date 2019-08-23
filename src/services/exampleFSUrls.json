@@ -1,0 +1,26 @@
+{
+  "data": [
+    {
+      "name": "World Population Estimate",
+      "url": "https://services1.arcgis.com/pf6KDbd8NVL1IUHa/arcgis/rest/services/World_Population_Estimate_Sources/FeatureServer/0",
+      "description": "World Population Estimate",
+      "geoFields": [
+        "Alpha2_Code",
+        "Alpha3_Code"
+      ],
+      "geoType": "Polygon",
+      "source": "Esri Living Atlas"
+    },
+    {
+      "name": "Country Centroids",
+      "url": "https://services7.arcgis.com/gp50Ao2knMlOM89z/arcgis/rest/services/List_of_M49_countries_or_areas/FeatureServer/0",
+      "description": "World Population Estimate",
+      "geoFields": [
+        "ISO3CD",
+        "geoAreaCode"
+      ],
+      "geoType": "Point",
+      "source": "UN Stats Division"
+    }
+  ]
+}

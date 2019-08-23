@@ -25,8 +25,10 @@ import Radio from 'calcite-react/Radio';
 import Switch from 'calcite-react/Switch';
 import Accordion, { AccordionSection, AccordionTitle, AccordionContent } from 'calcite-react/Accordion';
 import Table, { TableHeader, TableHeaderRow, TableBody, TableRow, TableCell } from 'calcite-react/Table';
+import { CalciteA } from 'calcite-react/Elements';
 
 import exampleSDMX from '../services/exampleSDMX.json';
+import exampleFSUrls from '../services/exampleFSUrls.json';
 
 import { Progress } from 'react-sweet-progress';
 import 'react-sweet-progress/lib/style.css';
@@ -79,6 +81,7 @@ class SDMXItemPublisherForm extends Component {
       hideGeoFilters: true,
 
       activeSectionIndexes: [],
+      activeFSUrlSectionIndexes: [],
       newItem: null,
       stashedGeographyField: '',
       stashedSDMXField: '',
@@ -298,8 +301,7 @@ class SDMXItemPublisherForm extends Component {
     });
 
     // collect parameters
-    const host = 'http://localhost:3000';
-    // const host = 'https://sdmx-express.azurewebsites.net';
+    const host = process.env.REACT_APP_SDMX_EXPRESS_HOST;
     const requestUrl = `${host}/publishSDMX`;
 
     let requestOptions = {
@@ -610,6 +612,16 @@ class SDMXItemPublisherForm extends Component {
         });
   };
 
+  onFSUrlAccordionChange = (evt, index) => {
+    this.state.activeFSUrlSectionIndexes.includes(index)
+      ? this.setState({
+          activeFSUrlSectionIndexes: this.state.activeFSUrlSectionIndexes.filter(item => index !== item)
+        })
+      : this.setState({
+          activeFSUrlSectionIndexes: [...this.state.activeFSUrlSectionIndexes, index]
+        });
+  };
+
   render() {
     return (
       <CalciteGridContainer className="leader-1">
@@ -622,7 +634,7 @@ class SDMXItemPublisherForm extends Component {
             <Form onSubmit={handleSubmit}>
               <CalciteGridColumn column="24">
                 <Panel className="text-left">
-                  <PanelTitle>Step 1. Select your SDMX Source</PanelTitle>
+                  <PanelTitle>Select your SDMX Source</PanelTitle>
                   <Tabs onTabChange={this.onSDMXTabChange} activeTabIndex={this.state.activeSDMXTabIndex}>
                     <TabNav>
                       <TabTitle>SDMX API URL</TabTitle>
@@ -665,6 +677,7 @@ class SDMXItemPublisherForm extends Component {
                                         <TableCellStyled />
                                         <TableCellStyled>Name</TableCellStyled>
                                         <TableCellStyled>Description</TableCellStyled>
+                                        <TableCellStyled>Geo Field</TableCellStyled>
                                         <TableCellStyled>Source</TableCellStyled>
                                       </TableHeaderRow>
                                     </TableHeader>
@@ -677,18 +690,15 @@ class SDMXItemPublisherForm extends Component {
                                               transparent
                                               onClick={() => {
                                                 setFieldValue('loadSDMXFromAPIUrl', item.url);
-                                                setFieldValue('loadGeoFromFSUrl', item.fsUrl);
-                                                // this.selectResponseFormatButton(item.format);
+                                                // setFieldValue('loadGeoFromFSUrl', item.fsUrl);
                                               }}>
                                               Use
                                             </Button>
                                           </TableCellStyled>
                                           <TableCellStyled>{item.name}</TableCellStyled>
                                           <TableCellStyled>{item.description}</TableCellStyled>
+                                          <TableCellStyled>{item.geoField}</TableCellStyled>
                                           <TableCellStyled>{item.source}</TableCellStyled>
-                                          {/* <TableCellStyled className="text-center">
-                                            {item.format === 1 ? <Label green>JSON</Label> : <Label blue>XML</Label>}
-                                          </TableCellStyled> */}
                                         </TableRow>
                                       ))}
                                     </TableBody>
@@ -697,7 +707,7 @@ class SDMXItemPublisherForm extends Component {
                               </AccordionSectionStyled>
                             </Accordion>
                           </CalciteGridColumn>
-                          <CalciteGridColumn column="18" className="leader-half">
+                          <CalciteGridColumn column="22" className="leader-half">
                             <CalciteGridColumn column="2">
                               <Button
                                 disabled={this.state.isLoadingFCFromAPI || this.state.isPublishingFeatureService}
@@ -764,7 +774,7 @@ class SDMXItemPublisherForm extends Component {
               <CalciteGridColumn column="24">
                 <Panel className="text-left leader-1">
                   <PanelTitle>
-                    Step 2. Add Geography
+                    Add Geography
                     <div className="margin-left-quarter" style={{ display: 'inline-block' }}>
                       <Switch
                         checked={this.state.useGeography}
@@ -799,8 +809,74 @@ class SDMXItemPublisherForm extends Component {
                             </FormHelperText>
                           </CalciteGridColumn>
                           <CalciteGridColumn column="22">
+                            <Accordion
+                              activeSectionIndexes={this.state.activeFSUrlSectionIndexes}
+                              onAccordionChange={this.onFSUrlAccordionChange}
+                              fullWidth>
+                              <AccordionSectionStyled fullWidth>
+                                <AccordionTitle>Example Feature Service URLs</AccordionTitle>
+                                <AccordionContent>
+                                  <Table blue striped style={{ marginBottom: '0' }}>
+                                    <TableHeader>
+                                      <TableHeaderRow>
+                                        <TableCellStyled />
+                                        <TableCellStyled>Layer Name</TableCellStyled>
+                                        <TableCellStyled>Geography Type</TableCellStyled>
+                                        <TableCellStyled>Geo Field(s)</TableCellStyled>
+                                        <TableCellStyled>Source</TableCellStyled>
+                                        <TableCellStyled>URL</TableCellStyled>
+                                      </TableHeaderRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                      {exampleFSUrls.data.map((item, index) => (
+                                        <TableRow key={`tblrow_${index}`}>
+                                          <TableCellStyled>
+                                            <Button
+                                              extraSmall
+                                              transparent
+                                              onClick={() => {
+                                                // setFieldValue('loadSDMXFromAPIUrl', item.url);
+                                                setFieldValue('loadGeoFromFSUrl', item.url);
+                                                // this.selectResponseFormatButton(item.format);
+                                              }}>
+                                              Use
+                                            </Button>
+                                          </TableCellStyled>
+                                          <TableCellStyled>{item.name}</TableCellStyled>
+                                          <TableCellStyled>{item.geoType}</TableCellStyled>
+                                          <TableCellStyled>
+                                            {item.geoFields.map((field, ind) => (
+                                              <div key={ind} style={{ display: 'inline-block' }}>
+                                                <CalciteA
+                                                  href={`${
+                                                    item.url
+                                                  }/query?where=1%3D1&returnDistinctValues=true&returnGeometry=false&outFields=${field}`}
+                                                  target="_blank">
+                                                  {field}
+                                                </CalciteA>
+                                                {ind === item.geoFields.length - 1 ? null : ', \u00A0'}
+                                              </div>
+                                            ))}
+                                          </TableCellStyled>
+                                          <TableCellStyled>{item.source}</TableCellStyled>
+                                          <TableCellStyled>
+                                            <CalciteA href={item.url} target="_blank">
+                                              View
+                                            </CalciteA>
+                                          </TableCellStyled>
+                                        </TableRow>
+                                      ))}
+                                    </TableBody>
+                                  </Table>
+                                </AccordionContent>
+                              </AccordionSectionStyled>
+                            </Accordion>
+                          </CalciteGridColumn>
+                          <CalciteGridColumn column="22" className="leader-half">
                             <CalciteGridColumn column="2">
-                              <Button onClick={() => this.loadGeoFieldsFromFeatureService(values.loadGeoFromFSUrl)}>
+                              <Button
+                                disabled={isSubmitting}
+                                onClick={() => this.loadGeoFieldsFromFeatureService(values.loadGeoFromFSUrl)}>
                                 {this.state.isLoadingFSFromURL ? 'Checking Feature Service ...' : 'Check URL'}
                               </Button>
                             </CalciteGridColumn>
@@ -878,7 +954,7 @@ class SDMXItemPublisherForm extends Component {
               </CalciteGridColumn>
               <CalciteGridColumn column="24">
                 <Panel className=" text-left leader-1 trailer-2">
-                  <PanelTitle className="text-left">Step 3. Publish as Hosted Feature Service</PanelTitle>
+                  <PanelTitle className="text-left">Publish as Hosted Feature Service</PanelTitle>
                   <FormControl
                     success={touched.newItemName && !errors.newItemName ? true : false}
                     error={touched.newItemName && errors.newItemName ? true : false}>
