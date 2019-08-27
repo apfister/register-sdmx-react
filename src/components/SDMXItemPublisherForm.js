@@ -12,13 +12,14 @@ import { Formik, Field } from 'formik';
 
 // Components
 import Panel, { PanelTitle } from 'calcite-react/Panel';
+import Tooltip from 'calcite-react/Tooltip';
 import ArcgisItemCard from 'calcite-react/ArcgisItemCard';
 import TextField from 'calcite-react/TextField';
-import Button from 'calcite-react/Button';
+import Button, { ButtonGroup } from 'calcite-react/Button';
 import Label from 'calcite-react/Label';
 import Loader from 'calcite-react/Loader';
 import Tabs, { TabNav, TabTitle, TabContents, TabSection } from 'calcite-react/Tabs';
-import Form, { FormControl, FormControlLabel, FormHelperText } from 'calcite-react/Form';
+import Form, { FormControl, FormControlLabel, FormHelperText, Fieldset } from 'calcite-react/Form';
 import FileUploader from 'calcite-react/FileUploader';
 import Alert from 'calcite-react/Alert';
 import Radio from 'calcite-react/Radio';
@@ -29,6 +30,7 @@ import { CalciteA } from 'calcite-react/Elements';
 
 import exampleSDMX from '../services/exampleSDMX.json';
 import exampleFSUrls from '../services/exampleFSUrls.json';
+import sdgMetaAll from '../services/sdgMetaAll.json';
 
 import { Progress } from 'react-sweet-progress';
 import 'react-sweet-progress/lib/style.css';
@@ -58,6 +60,14 @@ const AccordionSectionStyled = styled(AccordionSection)`
 
 const TableCellStyled = styled(TableCell)`
   padding: 0 0 0 5px;
+`;
+
+const NoMarginLeftCalciteGridColumn = styled(CalciteGridColumn)`
+  margin-left: 0px !important;
+`;
+
+const NoMarginBottomRadio = styled(Radio)`
+  margin-bottom: 0px !important;
 `;
 
 // Class
@@ -126,7 +136,15 @@ class SDMXItemPublisherForm extends Component {
       sdmxDataFile: null,
       geoJsonDataFile: null,
       selectedResponseFormat: 1,
-      useGeography: false
+      useGeography: false,
+      useSDMXMetadata: true,
+      sdgMetaSelectedGoal: null,
+      sdgMetaAvailableTargets: [],
+      sdgMetaSelectedTarget: null,
+      sdgMetaAvailableIndicators: [],
+      sdgMetaSelectedIndicator: null,
+      sdgMetaAvailableSeries: [],
+      sdgMetaSelectedSeries: null
     };
 
     this.onSDMXTabChange = this.onSDMXTabChange.bind(this);
@@ -622,6 +640,66 @@ class SDMXItemPublisherForm extends Component {
         });
   };
 
+  loadSDGMetaCache = async () => {
+    const sdgApiUrl = `https://unstats.un.org/SDGAPI/v1/sdg/Goal/List?includechildren=true`;
+    const sdgResponse = await axios.get(sdgApiUrl);
+    if (sdgResponse.data) {
+      this.setState({ availableSDMXCache: sdgResponse.data });
+    }
+  };
+
+  selectSDGMetaGoal = inGoal => {
+    const found = sdgMetaAll.filter(goal => goal.code === inGoal);
+    let targets = [];
+    if (found && found[0]) {
+      targets = found[0].targets;
+    }
+
+    this.setState({
+      sdgMetaSelectedGoal: inGoal,
+      sdgMetaAvailableTargets: targets,
+      sdgMetaSelectedTarget: null,
+      sdgMetaSelectedIndicator: null,
+      sdgMetaAvailableIndicators: [],
+      sdgMetaAvailableSeries: [],
+      sdgMetaSelectedSeries: null
+    });
+  };
+
+  selectSDGMetaTarget = inTarget => {
+    const found = this.state.sdgMetaAvailableTargets.filter(target => target.code === inTarget);
+    let indicators = [];
+    if (found && found[0]) {
+      indicators = found[0].indicators;
+    }
+
+    this.setState({
+      sdgMetaSelectedTarget: inTarget,
+      sdgMetaAvailableIndicators: indicators,
+      sdgMetaSelectedIndicator: null,
+      sdgMetaAvailableSeries: [],
+      sdgMetaSelectedSeries: null
+    });
+  };
+
+  selectSDGMetaIndicator = inIndicator => {
+    const found = this.state.sdgMetaAvailableIndicators.filter(indicator => indicator.code === inIndicator);
+    let series = [];
+    if (found && found[0]) {
+      series = found[0].series.filter(ser => ser.release === '2019.Q1.G.03');
+    }
+
+    this.setState({
+      sdgMetaSelectedIndicator: inIndicator,
+      sdgMetaAvailableSeries: series,
+      sdgMetaSelectedSeries: null
+    });
+  };
+
+  selectSDGMetaSeries = inSeries => {
+    this.setState({ sdgMetaSelectedSeries: inSeries });
+  };
+
   render() {
     return (
       <CalciteGridContainer className="leader-1">
@@ -950,6 +1028,109 @@ class SDMXItemPublisherForm extends Component {
                       </CalciteGridColumn>
                     </Panel>
                   ) : null}
+                </Panel>
+              </CalciteGridColumn>
+              <CalciteGridColumn column="24">
+                <Panel className="text-left leader-1">
+                  <PanelTitle>
+                    Add SDG Metadata
+                    <div className="margin-left-quarter" style={{ display: 'inline-block' }}>
+                      <Switch
+                        checked={this.state.useSDMXMetadata}
+                        onChange={() => {
+                          this.setState({
+                            useSDMXMetadata: !this.state.useSDMXMetadata
+                          });
+                        }}
+                      />
+                    </div>
+                  </PanelTitle>
+                  <div className={this.state.useSDMXMetadata ? null : 'sdg-tab-disabled'}>
+                    <NoMarginLeftCalciteGridColumn column="22">
+                      <CalciteGridColumn column="2">Goal</CalciteGridColumn>
+                      <CalciteGridColumn column="20">
+                        <ButtonGroup isToggle className="margin-left-1">
+                          {sdgMetaAll.map((btn, ind) => (
+                            <Tooltip key={ind} title={btn.title} placement="top">
+                              <Button
+                                clear={this.state.sdgMetaSelectedGoal !== btn.code}
+                                onClick={() => {
+                                  this.selectSDGMetaGoal(btn.code);
+                                }}>
+                                {btn.code}
+                              </Button>
+                            </Tooltip>
+                          ))}
+                        </ButtonGroup>
+                      </CalciteGridColumn>
+                    </NoMarginLeftCalciteGridColumn>
+                    {this.state.sdgMetaAvailableTargets.length > 0 ? (
+                      <CalciteGridColumn column="22" className="leader-1">
+                        <CalciteGridColumn column="2">Targets</CalciteGridColumn>
+                        <CalciteGridColumn column="20">
+                          <ButtonGroup isToggle className="margin-left-1">
+                            {this.state.sdgMetaAvailableTargets.map((target, ind) => (
+                              <Tooltip key={ind} title={target.description} placement="top">
+                                <Button
+                                  clear={this.state.sdgMetaSelectedTarget !== target.code}
+                                  onClick={() => {
+                                    this.selectSDGMetaTarget(target.code);
+                                  }}>
+                                  {target.code}
+                                </Button>
+                              </Tooltip>
+                            ))}
+                          </ButtonGroup>
+                        </CalciteGridColumn>
+                      </CalciteGridColumn>
+                    ) : null}
+                    {this.state.sdgMetaAvailableIndicators.length > 0 ? (
+                      <CalciteGridColumn column="22" className="leader-1">
+                        <CalciteGridColumn column="2">Indicators</CalciteGridColumn>
+                        <CalciteGridColumn column="20">
+                          <ButtonGroup isToggle className="margin-left-1">
+                            {this.state.sdgMetaAvailableIndicators.map((indicator, ind) => (
+                              <Tooltip key={ind} title={indicator.description} placement="top">
+                                <Button
+                                  clear={this.state.sdgMetaSelectedIndicator !== indicator.code}
+                                  onClick={() => {
+                                    this.selectSDGMetaIndicator(indicator.code);
+                                  }}>
+                                  {indicator.code}
+                                </Button>
+                              </Tooltip>
+                            ))}
+                          </ButtonGroup>
+                        </CalciteGridColumn>
+                      </CalciteGridColumn>
+                    ) : null}
+                    {this.state.sdgMetaAvailableSeries.length > 0 ? (
+                      <CalciteGridColumn column="22" className="leader-1">
+                        <CalciteGridColumn column="2">Series</CalciteGridColumn>
+                        <CalciteGridColumn column="20">
+                          <Fieldset name="rdoSeries" className="rdoSeries">
+                            {this.state.sdgMetaAvailableSeries.map((series, ind) => (
+                              <NoMarginBottomRadio key={ind}>
+                                {series.description} ({series.code})
+                              </NoMarginBottomRadio>
+                            ))}
+                          </Fieldset>
+                          {/* <ButtonGroup isToggle className="margin-left-1">
+                            {this.state.sdgMetaAvailableSeries.map((series, ind) => (
+                              <Button
+                                key={ind}
+                                clear={this.state.sdgMetaSelectedSeries !== series.code}
+                                onClick={() => {
+                                  this.selectSDGMetaSeries(series.code);
+                                }}>
+                                {series.code}
+                              </Button>
+                            ))}
+                          </ButtonGroup> */}
+                        </CalciteGridColumn>
+                      </CalciteGridColumn>
+                    ) : null}
+                  </div>
                 </Panel>
               </CalciteGridColumn>
               <CalciteGridColumn column="24">
